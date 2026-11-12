@@ -1,0 +1,4 @@
+<network>
+	<name>lab-dmz</name>
+	<bridge name='br-dmz' stp='off' delay='0'/>
+</network>

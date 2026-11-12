@@ -1,0 +1,9 @@
+#cloud-config
+users:
+  - name: lab
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: "lab"
+ssh_pwauth: false

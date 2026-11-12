@@ -1,0 +1,16 @@
+#cloud-config
+users:
+  - name: lab
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: "lab"
+ssh_pwauth: false
+write_files:
+  - path: /etc/sysctl.d/99-forward.conf
+    content: |
+      net.ipv4.ip_forward=1
+runcmd:
+  - sysctl --system
+  - systemctl enable --now nftables

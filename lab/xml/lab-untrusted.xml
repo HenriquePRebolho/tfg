@@ -1,0 +1,4 @@
+<network>
+  <name>lab-untrusted</name>
+  <bridge name='br-untr' stp='off' delay='0'/>
+</network>

@@ -1,0 +1,48 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="h-GG8-45QlVmT8_vydqf">
+    <mxGraphModel dx="966" dy="552" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="fQLDHyE218HbivC9VA1A-11" parent="1" style="shape=mxgraph.networks2.icon;aspect=fixed;fillColor=#0050ef;strokeColor=light-dark(#001DBC,#FFFFFF);network2IconShadow=1;network2bgFillColor=none;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;network2Icon=mxgraph.networks2.firewall;network2IconXOffset=0.0001;network2IconYOffset=0.0001;network2IconW=1;network2IconH=0.608;labelPerimeter=1;fontColor=light-dark(#FFFFFF,#FFFFFF);" value="FIREWALL (DUT)" vertex="1">
+          <mxGeometry height="30.4" width="50" x="390" y="236.65000000000003" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-28" edge="1" parent="1" source="fQLDHyE218HbivC9VA1A-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;entryX=0.006;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="fQLDHyE218HbivC9VA1A-11" value="">
+          <mxGeometry relative="1" x="-0.5499" as="geometry">
+            <mxPoint x="410" y="332.1" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-34" connectable="0" parent="fQLDHyE218HbivC9VA1A-28" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];inheritText=1;defaultLabelBackgroundColor=page;" value="&lt;div&gt;LAN (trusted) 10.10.2.0/24) 10.10.2.1&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0297" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-19" parent="1" style="shape=mxgraph.networks2.icon;aspect=fixed;fillColor=light-dark(#EDEDED,#6DB2FF);strokeColor=#000000;gradientColor=#5B6163;network2IconShadow=1;network2bgFillColor=none;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;network2Icon=mxgraph.networks2.monitor;network2IconYOffset=-0.009;network2IconW=1;network2IconH=0.742;labelPerimeter=1;" value="client: 10.10.2.10" vertex="1">
+          <mxGeometry height="37.1" width="50" x="110" y="233.3" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-22" parent="1" style="sketch=0;aspect=fixed;pointerEvents=1;shadow=0;dashed=0;html=1;strokeColor=default;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=light-dark(#00188D,#6DB2FF);shape=mxgraph.mscae.enterprise.server_generic;labelPerimeter=1;" value="trusted server: 10.10.3.10" vertex="1">
+          <mxGeometry height="50" width="24" x="660" y="226.85000000000002" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-26" edge="1" parent="1" source="fQLDHyE218HbivC9VA1A-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;" target="fQLDHyE218HbivC9VA1A-11" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-35" connectable="0" parent="fQLDHyE218HbivC9VA1A-26" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];inheritText=1;defaultLabelBackgroundColor=page;" value="10.10.1.1  (untrusted / WAN)" vertex="1">
+          <mxGeometry relative="1" x="-0.3553" y="1" as="geometry">
+            <mxPoint x="-1" y="16" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-24" parent="1" style="shape=mxgraph.networks2.icon;aspect=fixed;fillColor=light-dark(#EDEDED,#6DB2FF);strokeColor=#000000;gradientColor=#5B6163;network2IconShadow=1;network2bgFillColor=none;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;network2Icon=mxgraph.networks2.monitor;network2IconYOffset=-0.009;network2IconW=1;network2IconH=0.742;labelPerimeter=1;" value="attacker: 10.10.1.100" vertex="1">
+          <mxGeometry height="37.1" width="50" x="390" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-29" edge="1" parent="1" source="fQLDHyE218HbivC9VA1A-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.996;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;defaultLabelBackgroundColor=page;" target="fQLDHyE218HbivC9VA1A-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fQLDHyE218HbivC9VA1A-30" connectable="0" parent="fQLDHyE218HbivC9VA1A-29" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];inheritText=1;defaultLabelBackgroundColor=page;" value="&lt;div&gt;(DMZ 10.10.3.0/24) 10.10.3.1&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.7183" y="-1" as="geometry">
+            <mxPoint x="79" y="1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

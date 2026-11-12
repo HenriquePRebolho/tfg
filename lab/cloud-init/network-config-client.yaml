@@ -1,0 +1,10 @@
+version: 2
+ethernets:
+  lan0:
+    match:
+      macaddress: "52:54:00:30:00:01"
+    set-name: lan0
+    addresses: [10.10.2.10/24]
+    routes:
+      - to: 0.0.0.0/0
+        via: 10.10.2.1

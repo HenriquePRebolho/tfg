@@ -271,7 +271,32 @@ grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u
 ls -l /dev/kvm
 ```
 
-**Checkpoint:** the first command prints `vmx` (Intel) or `svm` (AMD), and `/dev/kvm` exists. If not, enable virtualization (Intel VT-x or AMD-V) in your computer's firmware settings.
+**Checkpoint:** the first command prints `vmx` (Intel) or `svm` (AMD), and `/dev/kvm` exists.
+
+**If `/dev/kvm` is missing** (the CPU supports virtualization, but the KVM module did not load):
+
+```bash
+# [HOST]
+systemd-detect-virt                                       # "none" means a physical machine
+lsmod | grep kvm                                          # kvm and kvm_intel (or kvm_amd) should be listed
+sudo dmesg | grep -i -E 'kvm|vmx|svm'                     # look for "disabled by BIOS" messages
+echo kvm_intel | sudo tee /etc/modules-load.d/kvm.conf    # use kvm_amd on AMD
+sudo reboot
+ls -l /dev/kvm                                            # after the reboot, the device must exist
+```
+
+If `systemd-detect-virt` prints anything other than `none`, the Debian host is itself a virtual machine, and nested virtualisation must be enabled in the hypervisor that runs it. If `dmesg` says virtualization is disabled by the BIOS, enable Intel VT-x or AMD-V in the firmware settings. Nested virtualisation is not needed on a physical host.
+
+**If `journalctl -b -u systemd-modules-load.service` shows `deny-listed`**, a blacklist file is blocking the module. Find it with `grep -rn kvm /etc/modprobe.d/ /usr/lib/modprobe.d/`. Then rename the file so it is ignored, without deleting it:
+
+```bash
+# [HOST]
+sudo mv /etc/modprobe.d/<file-you-found> /etc/modprobe.d/<file-you-found>.bak
+sudo update-initramfs -u
+sudo reboot
+```
+
+Only `.conf` files are read, so the `.bak` copy has no effect and can be restored later. Before you rename it, check whether you still need the software it was written for. A common reason to blacklist KVM is VirtualBox, which cannot use the virtualization hardware while KVM is loaded. The full diagnosis and the procedure for switching to VirtualBox are in Appendix A.
 
 ### Phase 1: Install the software
 
@@ -294,6 +319,14 @@ sudo virsh list --all
 ```
 
 **Checkpoint:** `virt-host-validate` reports `PASS` for the hardware virtualisation and KVM checks. `virsh list --all` runs without error. An empty list is normal at this point.
+
+The `echo ... >> ~/.bashrc` command prints nothing when it succeeds, and so does `source ~/.bashrc`. Confirm the change with:
+
+```bash
+# [HOST]
+grep LIBVIRT_DEFAULT_URI ~/.bashrc
+echo $LIBVIRT_DEFAULT_URI                 # must print qemu:///system
+```
 
 ### Phase 2: Create the folders
 
@@ -1122,6 +1155,9 @@ Stopping a network with `sudo virsh net-destroy lab-lan` does not delete it. Sta
 | Firewall rule seems to apply to the wrong zone | Interface names differ from the plan | Use the MAC addresses in Section 1.3 to identify each interface |
 | traceroute shows no hops | Gateway not set, or firewall not running | Check `ip route` on the endpoint and the firewall's addresses |
 | IPFire web page does not open | Temporary host address missing, or wrong subnet | Add the address from Section 7.3 and try again |
+| `virt-host-validate` reports `/dev/kvm` FAIL | KVM module blocked by a blacklist file, not loaded at boot, or virtualization disabled in firmware | Phase 0, block "If `/dev/kvm` is missing". Do not enable nested virtualisation on a physical host |
+| `modprobe: command not found` when run without `sudo` | Debian keeps `modprobe` in `/usr/sbin`, which normal users do not have in their PATH | Use `sudo modprobe ...`. Nothing is broken |
+| VirtualBox reports that VT-x is unavailable or in use | KVM is loaded while the lab VMs are running | Shut down the lab VMs, then `sudo modprobe -r kvm_intel`. Follow Appendix A.9 to switch modes |
 
 ---
 
@@ -1193,3 +1229,248 @@ Stopping a network with `sudo virsh net-destroy lab-lan` does not delete it. Sta
 ---
 
 **Note on links:** these addresses were compiled from the projects' published documentation structure. If one has moved, search the project name on the official site. Release file names change often, so check the exact names on each download page before you use the commands in Section 4.
+
+---
+
+## Appendix A: Hypervisor troubleshooting and switching between KVM and VirtualBox
+
+KVM (the lab) and VirtualBox both use the CPU's virtualization hardware (Intel VT-x or AMD-V). Only one hypervisor can use it at a time. This appendix explains how to diagnose a missing `/dev/kvm`, and how to switch between the two.
+
+### A.1 How the pieces fit together
+
+KVM is provided by the `kvm_intel` module on Intel CPUs and `kvm_amd` on AMD CPUs. Loading it creates `/dev/kvm`, which the lab uses. Two mechanisms load it:
+
+- **Automatic loading at boot.** Udev matches your CPU against the module aliases listed by `modprobe -c`. Those long alias lines are normal. They are the reason `kvm_intel` loads by itself, even without `/etc/modules-load.d/kvm.conf`.
+- **Manual loading.** `sudo modprobe kvm_intel` loads the module at any time.
+
+A **blacklist** entry blocks automatic loading, but not a manual `modprobe`. The file `/etc/modprobe.d/blacklist-kvm.conf` is the only mechanism that stops KVM at boot. Removing `kvm.conf` is not enough, because of the alias mechanism above.
+
+The two states are:
+
+| Mode | Blacklist file | KVM at boot | Used for |
+|---|---|---|---|
+| Lab mode | absent (kept as `blacklist-kvm.conf.bak`) | loads automatically | the KVM lab |
+| VirtualBox mode | present | blocked | VirtualBox |
+
+Check the current mode at any time:
+
+```bash
+# [HOST]
+ls /etc/modprobe.d/blacklist-kvm.conf 2>/dev/null && echo "VirtualBox mode (KVM blocked)" || echo "Lab mode (KVM allowed)"
+lsmod | grep -E 'kvm|vbox'
+ls -l /dev/kvm
+```
+
+### A.2 Diagnosing a missing `/dev/kvm`
+
+**Step 1: Is the host physical or a virtual machine?**
+
+```bash
+systemd-detect-virt
+```
+
+`none` means a physical machine, which is the normal case for this lab. Any other answer means the Debian host is itself a VM. Nested virtualisation is then required in the outer hypervisor. See A.7.
+
+**Step 2: Is the module loaded?**
+
+```bash
+lsmod | grep kvm
+ls -l /dev/kvm
+```
+
+In lab mode, `kvm` and `kvm_intel` are listed, and `/dev/kvm` exists with group `kvm`.
+
+**Step 3: What happened at boot?**
+
+```bash
+sudo journalctl -b -u systemd-modules-load.service --no-pager | grep -i kvm
+sudo dmesg | grep -i -E 'kvm|vmx|svm|virtualiz'
+```
+
+| Message | Meaning | Action |
+|---|---|---|
+| `Inserted module 'kvm_intel'` | Loaded correctly at boot | None |
+| `Module 'kvm_intel' is deny-listed (by kmod)` | A blacklist entry is blocking it | Go to A.3 |
+| `disabled by BIOS`, or an error mentioning VMX and the BIOS | Virtualization is off in the firmware | Go to A.4 |
+| `DMAR: Intel(R) Virtualization Technology for Directed I/O` | Information about the IOMMU (VT-d). Not a fault | None |
+| Nothing about KVM | The module was never tried | Go to A.5 |
+
+**Step 4: Find the blacklist.**
+
+```bash
+grep -rn -i 'kvm' /etc/modprobe.d/ /usr/lib/modprobe.d/ /run/modprobe.d/ 2>/dev/null
+sudo modprobe -c | grep -i '^blacklist' | grep -i kvm
+```
+
+In lab mode, the second command prints nothing. The `blacklist` lines for framebuffer drivers and `microcode` are distribution defaults and can be ignored.
+
+Note that `modprobe` must be run with `sudo`. Debian keeps it in `/usr/sbin`, which normal users do not have in their PATH. Running it without `sudo` produces `modprobe: command not found`, and nothing is broken.
+
+### A.3 Removing a blacklist for lab mode
+
+Rename the file rather than deleting it. Only files ending in `.conf` are read, so the `.bak` copy has no effect, and it can be restored later:
+
+```bash
+# [HOST]
+sudo mv /etc/modprobe.d/blacklist-kvm.conf /etc/modprobe.d/blacklist-kvm.conf.bak
+sudo update-initramfs -u
+sudo reboot
+```
+
+After the reboot, check that `/dev/kvm` exists and that the journal shows `Inserted module 'kvm_intel'`.
+
+### A.4 Firmware (BIOS or UEFI) settings
+
+Enter the firmware settings during boot, using the key your computer shows (often Del, F2, or F10). Then:
+
+1. Enable **Intel Virtualization Technology** (VT-x). On AMD, enable **SVM Mode**.
+2. Leave VT-d (IOMMU) at its default. It is not required for this lab.
+3. Save with the explicit "Save and Exit" option. Some firmware discards changes if you exit another way.
+4. If your board has a security feature such as Intel TXT, check the firmware documentation. Some boards lock virtualization settings behind it.
+
+If you enabled the setting and the module still fails, try the firmware's optimised defaults, then enable VT-x again and save.
+
+### A.5 Testing a manual load
+
+```bash
+# [HOST]
+sudo modprobe kvm_intel
+ls -l /dev/kvm
+```
+
+| Result | Meaning | What to do |
+|---|---|---|
+| Succeeds, and `/dev/kvm` appears | Firmware is fine. Only the automatic loading is failing | Check A.2 Step 3, then A.6 |
+| `Operation not supported`, or `No such device` | Firmware is blocking VMX | Go to A.4 |
+| `Key was rejected`, or `unavailable key` | Secure Boot is rejecting the module | Run `sudo apt install mokutil`, then `mokutil --sb-state`. If Secure Boot is on, disable it in the firmware |
+| `Module kvm_intel not found` | The kernel does not include KVM | Run `modinfo kvm_intel` and `uname -r`. Install the standard kernel with `sudo apt install linux-image-amd64`, then reboot |
+
+### A.6 Making the module load at boot
+
+For an explicit load on every boot (in addition to the alias mechanism):
+
+```bash
+# [HOST]
+echo kvm_intel | sudo tee /etc/modules-load.d/kvm.conf    # use kvm_amd on AMD
+sudo reboot
+```
+
+### A.7 Nested virtualisation (only when the host is itself a VM)
+
+If `systemd-detect-virt` does not print `none`, the Debian host runs inside another hypervisor. Nested virtualisation must then be enabled in that outer hypervisor. The Ubuntu documentation at https://ubuntu.com/server/docs/how-to/virtualisation/enable-nested-virtualisation/ explains the principle. Inside the Debian VM, check it with:
+
+```bash
+cat /sys/module/kvm_intel/parameters/nested      # Y means enabled
+```
+
+On a physical host, nested virtualisation is not needed, and it has no effect on `/dev/kvm`. Modern kernels enable it by default.
+
+### A.8 Quick reference of checks
+
+```bash
+sudo virt-host-validate qemu | grep kvm          # the /dev/kvm line must show PASS in lab mode
+sudo modprobe -c | grep -i '^blacklist' | grep -i kvm   # prints nothing in lab mode
+```
+
+### A.9 Switching from lab mode (KVM) to VirtualBox
+
+Install VirtualBox first if it is not present:
+
+```bash
+sudo apt install virtualbox
+```
+
+If VirtualBox later reports that its kernel driver is missing, install the module build tools and rebuild the modules:
+
+```bash
+sudo apt install virtualbox-dkms linux-headers-amd64
+sudo /sbin/vboxconfig
+```
+
+Then switch the mode:
+
+```bash
+# [HOST] 1. Stop the lab VMs
+sudo virsh list --name | xargs -r -n1 sudo virsh shutdown
+sleep 30
+sudo virsh list                        # must be empty; otherwise: sudo virsh destroy <name>
+
+# [HOST] 2. Unload KVM from the running system
+sudo modprobe -r kvm_intel
+lsmod | grep kvm                       # must print nothing
+
+# [HOST] 3. Block KVM at boot
+sudo mv /etc/modprobe.d/blacklist-kvm.conf.bak /etc/modprobe.d/blacklist-kvm.conf
+sudo update-initramfs -u
+
+# [HOST] 4. Load the VirtualBox modules and check them
+sudo modprobe vboxdrv
+lsmod | grep vbox
+VBoxManage --version
+
+# [HOST] 5. Reboot to confirm the boot-time state
+sudo reboot
+```
+
+If the `.bak` file does not exist, create the blacklist directly instead of step 3:
+
+```bash
+printf 'blacklist kvm\nblacklist kvm_intel\n' | sudo tee /etc/modprobe.d/blacklist-kvm.conf
+sudo update-initramfs -u
+```
+
+On AMD, add `blacklist kvm_amd` to the same file.
+
+After the reboot, `ls /dev/kvm` must report that the file does not exist, and `lsmod | grep kvm` must print nothing. Then start VirtualBox normally.
+
+### A.10 Switching from VirtualBox back to lab mode (KVM)
+
+Stop any VirtualBox VMs and close the VirtualBox window:
+
+```bash
+# [HOST] 1. Stop VirtualBox VMs
+VBoxManage list runningvms
+VBoxManage controlvm "<vm-name>" acpipowerbutton     # or: poweroff
+VBoxManage list runningvms                           # must be empty
+```
+
+Then unload the VirtualBox modules and re-enable KVM:
+
+```bash
+# [HOST] 2. Unload the VirtualBox modules
+sudo modprobe -r vboxnetadp vboxnetflt vboxdrv
+
+# [HOST] 3. Allow KVM at boot again
+sudo mv /etc/modprobe.d/blacklist-kvm.conf /etc/modprobe.d/blacklist-kvm.conf.bak
+sudo update-initramfs -u
+
+# [HOST] 4. Load KVM now and check it
+sudo modprobe kvm_intel
+ls -l /dev/kvm
+sudo virt-host-validate qemu | grep kvm
+
+# [HOST] 5. Reboot to confirm the boot-time state
+sudo reboot
+```
+
+After the reboot, check that `/dev/kvm` exists, then start the lab VMs as described in Section 10.
+
+Modprobe reports `FATAL: Module ... is not currently loaded` for any VirtualBox module that was never loaded. That message is harmless.
+
+### A.11 Rules for switching safely
+
+- Never run VirtualBox VMs and lab VMs at the same time. Check `lsmod | grep -E 'kvm|vbox'` before you start either one.
+- Reboot after every switch. The commands above switch the running system, and the reboot confirms that the boot-time behaviour matches the mode you chose.
+- Keep `blacklist-kvm.conf.bak` until you no longer need to switch back.
+
+### A.12 Common problems when switching
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `modprobe -r kvm_intel` reports "in use" | A lab VM or QEMU process is still running | `sudo virsh list`, then `sudo virsh destroy <name>` for any VM still listed. `pgrep -a qemu` shows remaining QEMU processes |
+| VirtualBox reports that VT-x is unavailable or in use | KVM is loaded | Switch to VirtualBox mode (A.9) |
+| VirtualBox reports that its kernel driver is missing or not loaded | Modules were not built for the current kernel | `sudo apt install virtualbox-dkms linux-headers-amd64`, `sudo /sbin/vboxconfig`, then reboot |
+| KVM still loads after a reboot in VirtualBox mode | The file is misnamed, or `update-initramfs` was not run | Check the file name in `/etc/modprobe.d/`, run `sudo update-initramfs -u`, and reboot |
+| `/dev/kvm` is missing in lab mode after a reboot | The blacklist file is still present | Follow A.3 |
+
+

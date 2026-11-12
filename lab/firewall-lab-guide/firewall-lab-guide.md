@@ -515,8 +515,8 @@ write_files:
     content: |
       net.ipv4.ip_forward=1
 runcmd:
-  - sysctl --system
-  - systemctl enable --now nftables
+  - /usr/sbin/sysctl --system
+  - /usr/bin/systemctl enable --now nftables
 EOF
 
 cat > meta-data-fw-nftables.yaml <<'EOF'
@@ -586,6 +586,7 @@ sudo virt-install \
   --memballoon none --rng /dev/urandom \
   --graphics none --console pty,target.type=serial \
   --import --noautoconsole
+  --check mac_in_use=off
 ```
 
 **Checkpoint:** wait two to three minutes for the first boot, then run:
@@ -623,6 +624,7 @@ sudo virt-install \
   --memballoon none --rng /dev/urandom \
   --graphics none --console pty,target.type=serial \
   --import --noautoconsole
+  --check mac_in_use=off
 ```
 
 **Checkpoint:** log in with `sudo virsh console trusted` and run:
@@ -653,6 +655,7 @@ sudo virt-install \
   --console pty,target.type=serial \
   --memballoon none --rng /dev/urandom \
   --import --noautoconsole
+  --check mac_in_use=off
 ```
 
 Kali's documentation lists the default login for its QEMU images and explains how to start the image. If the VM does not boot, check the boot mode in that documentation. Some Kali images need UEFI, in which case add `--boot uefi` after installing `ovmf`, which was done in Phase 1.
@@ -670,6 +673,7 @@ In the Kali desktop, open a terminal and run:
 # [VM: attacker, via VNC]
 passwd                                    # change the default password
 nmcli con show                            # note the name of the wired connection
+nmcli device status                       # DEVICE must show the wired card, not "--"
 sudo nmcli con mod "<connection name>" ipv4.method manual \
   ipv4.addresses 10.10.1.100/24 ipv4.gateway 10.10.1.1
 sudo nmcli con up "<connection name>"
@@ -690,6 +694,8 @@ Then inside Kali, `ip -br addr` shows `10.10.1.100/24`. Install `traceroute` if 
 ### Phase 7: Create the firewalls
 
 Each firewall gets its own VM with the same three network cards and MAC addresses. Build them one at a time. Before you start any firewall, make sure the others are shut down.
+
+Every firewall uses the same MAC addresses, so libvirt refuses to define a second firewall while the first one still exists, even when it is shut off. The error reads `The MAC address ... is in use by another virtual machine`. This check protects against accidental conflicts, but the shared MACs are intentional here, because only one firewall runs at a time. For `fw-vyos`, `fw-ipfire`, and `fw-openwrt`, add `--check mac_in_use=off` as the last option of the `virt-install` command. Do not use `--check all=off`, because that disables the other safety checks too. Never start two firewall VMs at once, and check with `sudo virsh list` before each start.
 
 #### 7.1 fw-nftables (the baseline firewall)
 
@@ -720,7 +726,7 @@ sudo virt-install \
 ```bash
 # [VM: fw-nftables]
 ip -br addr                  # wan0, lan0 and dmz0 with 10.10.1.1, 10.10.2.1, 10.10.3.1
-sysctl net.ipv4.ip_forward   # must print 1
+cat /proc/sys/net/ipv4/ip_forward   # must print 1
 sudo nft list ruleset        # empty, because no rules exist yet
 ```
 
@@ -768,7 +774,7 @@ Log in on the live system with `vyos` / `vyos`, then run:
 install image
 ```
 
-Follow the prompts. Accept the defaults where they are safe, set a password for the `vyos` user, and reboot when asked. After the reboot, log in with the password you chose.
+Follow the prompts. The installer lists only the disks attached to this VM. You should see one disk, `/dev/vda`, about 8 GB, which is the empty file `fw-vyos.qcow2`. Your host's disks are not attached to the VM, so the installer cannot see them. Answer `y` to erase that virtual disk. Set a password for the `vyos` user, and reboot when asked. After the reboot, log in with the password you chose.
 
 Identify the interfaces and their MAC addresses:
 
@@ -858,7 +864,7 @@ In the web interface, configure the network settings to match the plan:
 | Colour | Address | Notes |
 |---|---|---|
 | GREEN | `10.10.2.1/24` | Set during installation or in the web interface |
-| RED | `10.10.1.1/24`, static | No gateway. The untrusted network has no DHCP. |
+| RED | `10.10.1.1/24`, static, gateway `10.10.1.254` | The installer requires a gateway for static RED. Use `10.10.1.254`, a placeholder that no VM uses. Nothing answers there, so the lab has no internet route. Do not use the attacker's address or the firewall's own address. |
 | ORANGE | `10.10.3.1/24`, static | Assign it to the DMZ card's MAC |
 
 Menu names differ between versions. Look in the network configuration section.
@@ -1038,7 +1044,7 @@ If R1 to R3 fail, first confirm that P1 to P3 pass. Then look at the firewall's 
 
 | # | VM | Command | Expected result |
 |---|---|---|---|
-| T1 | fw-nftables | `sysctl net.ipv4.ip_forward` | `1` |
+| T1 | fw-nftables | `cat /proc/sys/net/ipv4/ip_forward` | `1` |
 | T2 | client | `iperf3 --version`, `nmap --version`, `hping3 --version` | Each prints a version |
 | T3 | attacker | `nmap --version`, `hping3 --version` | Each prints a version |
 
@@ -1145,7 +1151,7 @@ Stopping a network with `sudo virsh net-destroy lab-lan` does not delete it. Sta
 | VM will not start, error mentions the network | The lab network is stopped | `sudo virsh net-start lab-<zone>` |
 | `virsh console` shows nothing | Serial login is not enabled in that VM | Use VNC for that VM, or re-run `virt-customize` on the image before creating overlays |
 | Endpoint has no `10.10.x.x` address after boot | Wrong MAC in the VM definition or in `network-config`, or cloud-init did not run | Compare MACs in Section 1.3. Run `sudo cloud-init status` inside the VM. Recreate the overlay if needed |
-| Changed a seed file, but nothing changed | Same `instance-id`, so cloud-init skipped the file | Change the instance ID, or inside the VM run `sudo cloud-init clean --logs`, then `sudo reboot` |
+| Changed a seed file, but nothing changed | Same `instance-id`, so cloud-init skipped the file | Rebuild the seed ISO with `cloud-localds`, then recreate the overlay as in Section 9.2. The VM must not be running during the rebuild. Changing the instance ID or running `sudo cloud-init clean --logs` inside the VM also makes cloud-init run again |
 | Ping to gateway fails | Firewall VM not running, or its address is not set | `sudo virsh list`. Check the firewall's interface addresses |
 | Ping fails with `Network unreachable` | Missing default route on the endpoint | `ip route` inside the VM. Check the gateway in the network config |
 | Two firewalls cause odd results | Two firewall VMs are running with the same addresses | `sudo virsh shutdown` the one you are not using |
@@ -1155,6 +1161,13 @@ Stopping a network with `sudo virsh net-destroy lab-lan` does not delete it. Sta
 | Firewall rule seems to apply to the wrong zone | Interface names differ from the plan | Use the MAC addresses in Section 1.3 to identify each interface |
 | traceroute shows no hops | Gateway not set, or firewall not running | Check `ip route` on the endpoint and the firewall's addresses |
 | IPFire web page does not open | Temporary host address missing, or wrong subnet | Add the address from Section 7.3 and try again |
+| `nmcli con up` fails, or the DEVICE column shows `--` | The connection is not bound to the wired card, or the card is unmanaged | Run `nmcli device status`. Bind the connection with `sudo nmcli con mod "<name>" connection.interface-name <device>`, then `sudo nmcli con up "<name>"`. Never edit `lo`, which is the loopback interface |
+| `sudo cloud-init schema --system` reports `Additional properties are not allowed ('<key>' was unexpected)` | A key in `user-data` is misspelled, for example `ssh_pwaut` instead of `ssh_pwauth`. Cloud-init ignores the bad key, so the rest of the file still runs | Find the key with `grep -n -i 'ssh_pw' ~/lab/cloud-init/*.yaml`, correct the spelling, rebuild the seed, and recreate the overlay |
+| `runcmd: ... systemctl: not found` in `/var/log/cloud-init-output.log`, and the service is `inactive` | cloud-init ran the command with a PATH that does not include the command | Use the absolute path, such as `/usr/bin/systemctl`, in `runcmd`. Check the path with `command -v systemctl` inside the VM |
+| `sysctl: command not found` when run as the `lab` user | `sysctl` is in `/usr/sbin`, which normal users do not have in their PATH | Use `cat /proc/sys/net/ipv4/ip_forward` to read the value, or `sudo sysctl` to change it. Nothing is broken |
+| `ERROR The MAC address '52:54:00:20:01:..' is in use by another virtual machine` when creating a firewall | A previous firewall VM still exists and uses the same MAC, which is intentional in this lab | Add `--check mac_in_use=off` to the `virt-install` command. Keep only one firewall running |
+| `WARNING Failed to detect osinfo OS name from install media` | The ISO has no OS metadata | Harmless. virt-install uses a generic profile, which is fine for VyOS, IPFire, and OpenWrt |
+| IPFire will not accept a static RED address without a gateway | The installer requires a gateway for static RED | Enter `10.10.1.254` as the gateway. It must be in the RED subnet, and no VM may use it. This is the lab's placeholder upstream |
 | `virt-host-validate` reports `/dev/kvm` FAIL | KVM module blocked by a blacklist file, not loaded at boot, or virtualization disabled in firmware | Phase 0, block "If `/dev/kvm` is missing". Do not enable nested virtualisation on a physical host |
 | `modprobe: command not found` when run without `sudo` | Debian keeps `modprobe` in `/usr/sbin`, which normal users do not have in their PATH | Use `sudo modprobe ...`. Nothing is broken |
 | VirtualBox reports that VT-x is unavailable or in use | KVM is loaded while the lab VMs are running | Shut down the lab VMs, then `sudo modprobe -r kvm_intel`. Follow Appendix A.9 to switch modes |
